@@ -120,36 +120,43 @@ impl CICTokenizer {
 
     pub fn vocab_size(&self) -> usize { self.vocab.len() }
 
-    /// Converts a raw string into an array of optimized CIC token IDs
+/// Converts a raw string into an array of optimized CIC token IDs.
+    /// Implements a fall-through mechanism for 100% lossless reconstruction.
     #[pyo3(text_signature = "($self, text, /)")]
     pub fn encode(&self, text: &str) -> Vec<u32> {
         let bytes = text.as_bytes();
         let mut tokens = Vec::new();
         let mut i = 0;
 
-        // Greedy longest-prefix match
         while i < bytes.len() {
-            let mut best_match_id = bytes[i] as u32; // Fallback to the single atomic byte
-            let mut best_match_len = 1;
+            let mut best_match_id = None;
+            let mut best_match_len = 0;
 
+            // Greedy search: Find the longest motif in the vocab that fits at index i
             for (&id, token_bytes) in &self.vocab {
                 let len = token_bytes.len();
-                // If this token is longer than our current best, and it fits in the remaining text
-                if len > best_match_len && i + len <= bytes.len() {
-                    // Check if the byte slice exactly matches
-                    if &bytes[i..i+len] == token_bytes.as_slice() {
-                        best_match_id = id;
+                if len <= bytes.len() - i && &bytes[i..i+len] == token_bytes.as_slice() {
+                    if len > best_match_len {
                         best_match_len = len;
+                        best_match_id = Some(id);
                     }
                 }
             }
-            tokens.push(best_match_id);
-            i += best_match_len;
-        }
 
+            match best_match_id {
+                Some(id) => {
+                    tokens.push(id);
+                    i += best_match_len;
+                }
+                None => {
+                    // FALL-THROUGH: Treat unknown byte as its own atomic token
+                    tokens.push(bytes[i] as u32);
+                    i += 1;
+                }
+            }
+        }
         tokens
     }
-
     /// Converts an array of CIC token IDs back into a human-readable string
     #[pyo3(text_signature = "($self, tokens, /)")]
     pub fn decode(&self, tokens: Vec<u32>) -> String {

@@ -1,0 +1,13 @@
+[package]
+name = "cic_tokenizer"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "cic_tokenizer"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.20", features = ["extension-module"] }
+hashbrown = "0.14"
+statrs = "0.16"

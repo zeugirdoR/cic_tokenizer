@@ -1,0 +1,16 @@
+cd ~/bitnetsdir/cic_tokenizer
+
+# Stage all your files (Cargo.toml, pyproject.toml, src/lib.rs)
+git add .
+
+# Commit the exact geometric engine
+git commit -m "Initial release of the Exact CIC Tokenizer in Rust"
+
+# Set the branch to main
+git branch -M main
+
+# Link your local folder to your GitHub repository
+git remote add origin https://github.com/YOUR_USERNAME/cic_tokenizer.git
+
+# Push the code to the cloud
+git push -u origin main

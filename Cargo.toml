@@ -5,9 +5,10 @@ edition = "2021"
 
 [lib]
 name = "cic_tokenizer"
-crate-type = ["cdylib"]
+crate-type = ["cdylib","rlib"]
 
 [dependencies]
 pyo3 = { version = "0.21", features = ["extension-module"] }
 hashbrown = "0.14"
 statrs = "0.16"
+nalgebra = "0.34.1"

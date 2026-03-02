@@ -1,7 +1,102 @@
+pub mod geometry;
+
 use pyo3::prelude::*;
-use hashbrown::HashMap;
+use std::collections::HashMap;
 use std::f64::consts::PI;
 use statrs::function::gamma::ln_gamma;
+use nalgebra::Vector3;
+
+use crate::geometry::TokenizerNode;
+
+// ==========================================
+// 1. CONTINUOUS GEOMETRY ENGINE (RICCI FLOW)
+// ==========================================
+
+pub struct BatchCounts {
+    pub total_n: f64,
+    pub n1: f64,  
+    pub n0: f64,  
+    pub n01: f64, 
+    pub n00: f64, 
+    pub n11: f64, 
+    pub n10: f64, 
+}
+
+impl BatchCounts {
+    pub fn compute_score_u(&self, theta: &Vector3<f64>) -> Vector3<f64> {
+        let eps = 1e-12;
+        let t1 = theta[0];
+        let t2_given_0 = theta[1];
+        let t2_given_1 = theta[2];
+
+        let u1 = (self.n1 / (t1 + eps)) - (self.n0 / (1.0 - t1 + eps));
+        let u2_0 = (self.n01 / (t2_given_0 + eps)) - (self.n00 / (1.0 - t2_given_0 + eps));
+        let u2_1 = (self.n11 / (t2_given_1 + eps)) - (self.n10 / (1.0 - t2_given_1 + eps));
+
+        Vector3::new(u1, u2_0, u2_1)
+    }
+}
+
+pub fn process_batch(
+    network: &mut HashMap<String, TokenizerNode>, 
+    pair_key: &str, 
+    counts: BatchCounts, 
+    kappa: f64
+) {
+    let node = network.entry(pair_key.to_string()).or_insert_with(|| TokenizerNode {
+        theta: Vector3::new(0.5, 0.5, 0.5), 
+        n_samples: 0.0,
+    });
+
+    node.n_samples += counts.total_n;
+    let score_u = counts.compute_score_u(&node.theta);
+    let grad_r = Vector3::zeros(); 
+
+    node.geometric_step(score_u, grad_r, kappa);
+}
+
+pub fn stream_text_to_geometry(
+    text: &str,
+    network: &mut HashMap<String, TokenizerNode>,
+    kappa: f64
+) {
+    let chars: Vec<char> = text.chars().collect();
+    if chars.len() < 2 { return; }
+
+    let total_n = (chars.len() - 1) as f64;
+    let mut marginals: HashMap<char, f64> = HashMap::new();
+    let mut joints: HashMap<(char, char), f64> = HashMap::new();
+
+    for i in 0..chars.len() - 1 {
+        let a = chars[i];
+        let b = chars[i+1];
+        *marginals.entry(a).or_insert(0.0) += 1.0;
+        *joints.entry((a, b)).or_insert(0.0) += 1.0;
+    }
+    *marginals.entry(chars[chars.len() - 1]).or_insert(0.0) += 1.0;
+
+    for (&(a, b), &n11) in joints.iter() {
+        let n1 = *marginals.get(&a).unwrap_or(&0.0);
+        let n_b_total = *marginals.get(&b).unwrap_or(&0.0);
+
+        let counts = BatchCounts {
+            total_n,
+            n1,                                    
+            n0: total_n - n1,                      
+            n11,                                   
+            n10: n1 - n11,                         
+            n01: n_b_total - n11,                  
+            n00: total_n - n1 - (n_b_total - n11), 
+        };
+
+        let pair_key = format!("{}{}", a, b);
+        process_batch(network, &pair_key, counts, kappa);
+    }
+}
+
+// ==========================================
+// 2. DISCRETE EXACT CIC TOKENIZER (PYO3)
+// ==========================================
 
 #[derive(Hash, Eq, PartialEq, Clone, Copy)]
 struct TokenPair(u32, u32);
@@ -71,7 +166,7 @@ impl CICTokenizer {
             if pair_counts.is_empty() { break; }
 
             let mut best_pair = None;
-            let mut best_delta = 0.0; // Must be strictly negative to authorize merge
+            let mut best_delta = 0.0; 
 
             for (pair, &m) in pair_counts.iter() {
                 let n_x = *self.counts.get(&pair.0).unwrap();
@@ -86,7 +181,6 @@ impl CICTokenizer {
 
             if best_delta >= 0.0 || best_pair.is_none() { break; }
 
-            // Apply merge
             let pair = best_pair.unwrap();
             let mut new_sequence = Vec::with_capacity(self.sequence.len());
             let mut i = 0;
@@ -101,12 +195,10 @@ impl CICTokenizer {
             }
             self.sequence = new_sequence;
             
-            // Update maps
             let mut new_token_bytes = self.vocab.get(&pair.0).unwrap().clone();
             new_token_bytes.extend(self.vocab.get(&pair.1).unwrap());
             self.vocab.insert(self.next_token_id, new_token_bytes);
             
-            // Recompute counts for the next iteration
             self.counts.clear();
             for &token in &self.sequence {
                 *self.counts.entry(token).or_insert(0) += 1;
@@ -120,8 +212,6 @@ impl CICTokenizer {
 
     pub fn vocab_size(&self) -> usize { self.vocab.len() }
 
-/// Converts a raw string into an array of optimized CIC token IDs.
-    /// Implements a fall-through mechanism for 100% lossless reconstruction.
     #[pyo3(text_signature = "($self, text, /)")]
     pub fn encode(&self, text: &str) -> Vec<u32> {
         let bytes = text.as_bytes();
@@ -132,7 +222,6 @@ impl CICTokenizer {
             let mut best_match_id = None;
             let mut best_match_len = 0;
 
-            // Greedy search: Find the longest motif in the vocab that fits at index i
             for (&id, token_bytes) in &self.vocab {
                 let len = token_bytes.len();
                 if len <= bytes.len() - i && &bytes[i..i+len] == token_bytes.as_slice() {
@@ -149,7 +238,6 @@ impl CICTokenizer {
                     i += best_match_len;
                 }
                 None => {
-                    // FALL-THROUGH: Treat unknown byte as its own atomic token
                     tokens.push(bytes[i] as u32);
                     i += 1;
                 }
@@ -157,27 +245,25 @@ impl CICTokenizer {
         }
         tokens
     }
-    /// Converts an array of CIC token IDs back into a human-readable string
+
     #[pyo3(text_signature = "($self, tokens, /)")]
     pub fn decode(&self, tokens: Vec<u32>) -> String {
         let mut bytes = Vec::new();
-        
         for token in tokens {
-            // Retrieve the raw bytes for each token ID, ignoring unrecognized tokens
             if let Some(token_bytes) = self.vocab.get(&token) {
                 bytes.extend_from_slice(token_bytes);
             }
         }
-        
-        // Safely convert the raw bytes back to a string.
         String::from_utf8_lossy(&bytes).into_owned()
     }
 }
 
-// The module initialization must stay at the very bottom
+// ==========================================
+// 3. PYO3 MODULE BINDING
+// ==========================================
+
 #[pymodule]
-fn cic_tokenizer(_py: Python, m: &PyModule) -> PyResult<()> {
+fn cic_tokenizer(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<CICTokenizer>()?;
     Ok(())
 }
-

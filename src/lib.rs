@@ -267,3 +267,4 @@ fn cic_tokenizer(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<CICTokenizer>()?;
     Ok(())
 }
+

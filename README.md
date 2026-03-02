@@ -63,7 +63,7 @@ Python 3.10+
 
 maturin
 
-Professor’s Note:
+Notes:
 
 From Discrete Samples to Information ManifoldsThis project serves as a
 pedagogical bridge between Statistical Learning Theory and Natural
@@ -100,3 +100,26 @@ Lossless Reconstruction:
 Despite the complex continuous math in the back-end, the final output
 remains a strictly discrete, lossless mapping, ensuring 100% data
 integrity for LLM training.
+
+Professor’s Note: The Geometry of Information
+
+As a researcher in the Department of Mathematics and Statistics, I
+developed this engine to move beyond frequentist heuristics in NLP.
+
+Beyond Flat Geometry:
+
+Traditional BPE assumes a flat probability space; this engine treats
+token transitions as a Riemannian Manifold, where the Fisher
+Information Matrix defines the local distance.
+
+The Ricci Flow Analogy:
+
+Just as Ricci flow smoothes a manifold, our curvature-regularized
+updates "smooth" the token vocabulary, ensuring that merges only
+happen when the statistical evidence is undeniable.
+
+Educational Utility:
+
+This codebase is designed to be readable for students and researchers
+exploring the intersection of Differential Geometry and Machine
+Learning.
